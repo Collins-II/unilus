@@ -1,0 +1,18 @@
+{
+  "name": "UNILUS Navigator",
+  "short_name": "UNILUS",
+  "description": "Explore campus, plan your week and connect at the University of Lusaka.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f6f9",
+  "theme_color": "#1769c2",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/unilus-navigator.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
