@@ -405,14 +405,12 @@ export default function DashboardPage() {
         onSaved={fetchDashboardData}
       />
 
-      {profile ? (
-        <ProfileModal
-          open={profileModalOpen}
-          profile={profile}
-          onClose={() => setProfileModalOpen(false)}
-          onSaved={fetchDashboardData}
-        />
-      ) : null}
+      <ProfileModal
+        open={profileModalOpen}
+        profile={profile}
+        onClose={() => setProfileModalOpen(false)}
+        onSaved={fetchDashboardData}
+      />
 
       <PaymentModal
         open={paymentModalOpen}

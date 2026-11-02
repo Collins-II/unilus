@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Bell, Shield, SlidersHorizontal, X } from "lucide-react";
 
 type NotificationSettings = {
@@ -29,17 +29,48 @@ type SettingsModalProps = {
   onSaved: () => void;
 };
 
+const notificationOptions: { key: keyof NotificationSettings; label: string }[] = [
+  { key: "email", label: "Email updates" },
+  { key: "sms", label: "SMS reminders" },
+  { key: "push", label: "Push alerts" },
+  { key: "weeklyDigest", label: "Weekly digest" },
+];
+
+const appOptions: { key: keyof AppSettings; label: string }[] = [
+  { key: "compactMode", label: "Compact layout" },
+  { key: "campusAlerts", label: "Campus alerts" },
+  { key: "autoConfirmBookings", label: "Auto-confirm bookings" },
+  { key: "darkMode", label: "Dark mode" },
+];
+
+function settingsForm(settings: SettingsState | null): SettingsState {
+  return {
+    notifications: {
+      email: true, sms: false, push: true, weeklyDigest: true,
+      ...settings?.notifications,
+    },
+    app: {
+      compactMode: false, campusAlerts: true, autoConfirmBookings: false, darkMode: true,
+      ...settings?.app,
+    },
+  };
+}
+
 export function SettingsModal({ open, settings, onClose, onSaved }: SettingsModalProps) {
-  const [form, setForm] = useState<SettingsState>(() => ({
-    notifications: settings?.notifications || { email: true, sms: false, push: true, weeklyDigest: true },
-    app: settings?.app || { compactMode: false, campusAlerts: true, autoConfirmBookings: false, darkMode: true },
-  }));
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [form, setForm] = useState<SettingsState>(() => settingsForm(settings));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  if (!open) {
-    return null;
-  }
+  useEffect(() => {
+    if (open) {
+      setForm(settingsForm(settings));
+      setError("");
+      if (!dialog.current?.open) dialog.current?.showModal();
+    } else if (dialog.current?.open) {
+      dialog.current.close();
+    }
+  }, [open, settings]);
 
   const toggleNotification = (key: keyof NotificationSettings) => {
     setForm((current) => ({
@@ -83,105 +114,104 @@ export function SettingsModal({ open, settings, onClose, onSaved }: SettingsModa
   };
 
   return (
-    <div className="ui-modal-backdrop">
-      <div className="w-full max-w-2xl ui-modal">
-        <div className="ui-modal-head mb-5 flex items-center justify-between">
+    <dialog
+      ref={dialog}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!isSubmitting) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          if (!isSubmitting) onClose();
+        }
+      }}
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !isSubmitting) onClose();
+      }}
+      aria-labelledby="settings-modal-title"
+      className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-2xl overflow-y-auto rounded-3xl border-0 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/50"
+    >
+      {open && <div className="p-5 sm:p-7">
+        <div className="mb-6 flex items-start justify-between gap-4 border-b border-slate-100 pb-5">
           <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#008236]">Settings</p>
-            <h2 className="mt-1 text-3xl font-black uppercase leading-none tracking-tight text-black">Account preferences</h2>
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#1769c2]">Settings</p>
+            <h2 id="settings-modal-title" className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Account preferences</h2>
+            <p className="mt-2 text-sm text-slate-500">Choose how you receive updates and use the app.</p>
           </div>
-          <button type="button" onClick={onClose} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-black text-black transition hover:bg-black hover:text-white">
+          <button type="button" onClick={onClose} disabled={isSubmitting} aria-label="Close settings" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.15em] text-gray-800">
-              <Bell className="h-3.5 w-3.5" />
-              Notifications
+          <section aria-labelledby="notification-settings-title">
+            <h3 id="notification-settings-title" className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800"><Bell aria-hidden="true" className="h-4 w-4 text-[#1769c2]" />Notifications</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {notificationOptions.map(({ key, label }) => {
+                const enabled = form.notifications[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    disabled={isSubmitting}
+                    onClick={() => toggleNotification(key)}
+                    className={`flex min-h-[56px] items-center justify-between gap-4 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1769c2] disabled:cursor-not-allowed disabled:opacity-60 ${
+                      enabled ? "border-[#c7d9ee] bg-[#f4f8fd] text-slate-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span aria-hidden="true" className={`flex h-6 w-11 shrink-0 items-center rounded-full p-1 transition-colors ${enabled ? "bg-[#1769c2]" : "bg-slate-300"}`}>
+                      <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-5" : "translate-x-0"}`} />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["email", "Email updates"],
-                ["sms", "SMS reminders"],
-                ["push", "Push alerts"],
-                ["weeklyDigest", "Weekly digest"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleNotification(key as keyof NotificationSettings)}
-                  className={`flex items-center justify-between min-h-[52px] rounded border-2 px-3 py-2.5 text-left text-sm font-bold transition ${
-                    form.notifications[key as keyof NotificationSettings]
-                      ? "border-black bg-white text-black"
-                      : "border-gray-200 bg-white text-gray-500"
-                  }`}
-                >
-                  <span>{label}</span>
-                  <span className={`h-6 w-11 shrink-0 rounded-full p-1.5 ${form.notifications[key as keyof NotificationSettings] ? "bg-[#008236]" : "bg-gray-300"}`}>
-                    <span className={`block h-3 w-3 rounded-full bg-white transition ${form.notifications[key as keyof NotificationSettings] ? "translate-x-5" : "translate-x-0"}`} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          </section>
 
-          <div>
-            <div className="mb-3 flex items-center gap-2 text-xs font-black uppercase tracking-[0.15em] text-gray-800">
-              <SlidersHorizontal className="h-3.5 w-3.5" />
-              Interface & campus
+          <section aria-labelledby="app-settings-title">
+            <h3 id="app-settings-title" className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal aria-hidden="true" className="h-4 w-4 text-[#1769c2]" />Interface and campus</h3>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {appOptions.map(({ key, label }) => {
+                const enabled = form.app[key];
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    disabled={isSubmitting}
+                    onClick={() => toggleAppSetting(key)}
+                    className={`flex min-h-[56px] items-center justify-between gap-4 rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1769c2] disabled:cursor-not-allowed disabled:opacity-60 ${
+                      enabled ? "border-[#c7d9ee] bg-[#f4f8fd] text-slate-800" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <span>{label}</span>
+                    <span aria-hidden="true" className={`flex h-6 w-11 shrink-0 items-center rounded-full p-1 transition-colors ${enabled ? "bg-[#1769c2]" : "bg-slate-300"}`}>
+                      <span className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${enabled ? "translate-x-5" : "translate-x-0"}`} />
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {[
-                ["compactMode", "Compact layout"],
-                ["campusAlerts", "Campus alerts"],
-                ["autoConfirmBookings", "Auto-confirm bookings"],
-                ["darkMode", "Dark mode"]
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => toggleAppSetting(key as keyof AppSettings)}
-                  className={`flex items-center justify-between min-h-[52px] rounded border-2 px-3 py-2.5 text-left text-sm font-bold transition ${
-                    form.app[key as keyof AppSettings]
-                      ? "border-black bg-white text-black"
-                      : "border-gray-200 bg-white text-gray-500"
-                  }`}
-                >
-                  <span>{label}</span>
-                  <span className={`h-6 w-11 shrink-0 rounded-full p-1.5 ${form.app[key as keyof AppSettings] ? "bg-[#008236]" : "bg-gray-300"}`}>
-                    <span className={`block h-3 w-3 rounded-full bg-white transition ${form.app[key as keyof AppSettings] ? "translate-x-5" : "translate-x-0"}`} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+          </section>
 
-          <div className="rounded border-2 border-gray-200 bg-white p-4 text-sm text-gray-600">
-            <div className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-[0.15em] text-gray-800">
-              <Shield className="h-3.5 w-3.5" />
-              Security
-            </div>
-            Two-factor authentication is available for your account. The setting remains managed securely from your identity provider and can be reviewed in the admin portal.
-          </div>
+          <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-relaxed text-slate-600">
+            <h3 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800"><Shield aria-hidden="true" className="h-4 w-4 text-[#1769c2]" />Security</h3>
+            Two-factor authentication is managed by your identity provider and can be reviewed in the admin portal.
+          </aside>
 
-          {error ? (
-            <div className="rounded border-2 border-[#008236] bg-white px-3 py-2 text-sm font-semibold text-[#016630]">
-              {error}
-            </div>
-          ) : null}
+          {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{error}</div>}
 
-          <div className="ui-modal-actions">
-            <button type="button" onClick={onClose} className="ui-btn ui-btn-secondary">
-              Cancel
-            </button>
-            <button type="submit" disabled={isSubmitting} className="ui-btn ui-btn-primary">
-              {isSubmitting ? "Saving..." : "Save settings"}
-            </button>
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+            <button type="button" onClick={onClose} disabled={isSubmitting} className="ui-btn ui-btn-secondary">Cancel</button>
+            <button type="submit" disabled={isSubmitting} className="ui-btn ui-btn-primary">{isSubmitting ? "Saving..." : "Save settings"}</button>
           </div>
         </form>
-      </div>
-    </div>
+      </div>}
+    </dialog>
   );
 }

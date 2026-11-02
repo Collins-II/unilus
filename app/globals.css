@@ -324,6 +324,10 @@
 .skip-link:focus { top: 10px; }
 .ui-page { min-height: 65vh; padding: 32px 32px 72px; background: var(--background); }
 .ui-card { border: 1px solid var(--border); border-radius: 16px; padding: 24px; background: white; }
+.ui-input { display: block; box-sizing: border-box; width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--card); color: var(--foreground); font: inherit; font-size: 14px; line-height: 1.5; transition: border-color 150ms, box-shadow 150ms; }
+.ui-input::placeholder { color: #94a3b8; opacity: 1; }
+.ui-input:focus-visible { border-color: var(--brand); outline: 2px solid color-mix(in srgb, var(--brand) 24%, transparent); outline-offset: 2px; }
+.ui-input-icon { padding-left: 2.75rem; }
 .ui-btn { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; border: 1px solid transparent; border-radius: 6px; padding: 10px 18px; font-size: 12px; font-weight: 650; transition: background 150ms; cursor: pointer; }
 .ui-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .ui-btn-primary { background: var(--brand); color: white; }

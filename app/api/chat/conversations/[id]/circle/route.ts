@@ -9,6 +9,8 @@ import { readCircleUpload, validateCircleDocumentContents } from "@/lib/circle-d
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ id: string }> };
 
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 async function memberCircle(id: string) {
   const userId = await getChatUserId();
   if (!userId) return { response: NextResponse.json({ error: "Authentication required." }, { status: 401 }) };
@@ -85,8 +87,17 @@ export const POST = withDatabaseErrorHandling(async function POST(request: Reque
   const result = validateCircleDraft(input, Date.now(), document ? "document" : "link");
   if (!result.data) return NextResponse.json({ error: result.error }, { status: 400 });
   const { startsAt, ...draft } = result.data;
-  if (draft.kind === "session" && !(await Room.exists({ name: draft.location }))) {
-    return NextResponse.json({ error: "Choose a published campus meeting place." }, { status: 400 });
+  if (draft.kind === "session") {
+    const roomPattern = escapeRegex(draft.location);
+    const roomQuery = {
+      $or: [
+        { name: { $regex: `^${roomPattern}$`, $options: "i" } },
+        { code: { $regex: `^${roomPattern}$`, $options: "i" } },
+      ],
+    };
+    if (!(await Room.exists(roomQuery))) {
+      return NextResponse.json({ error: "Choose a published campus meeting place." }, { status: 400 });
+    }
   }
   const activity = await CircleActivity.create({
     ...draft,
