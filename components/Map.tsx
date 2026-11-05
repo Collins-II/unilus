@@ -250,14 +250,14 @@ export default function Map({
 
   return (
     <div className={`relative w-full overflow-hidden bg-gray-100 ${className}`}>
-      <label className={`absolute left-3 top-24 z-[1000] max-w-[calc(100%-5rem)] rounded-lg bg-white p-2 text-sm text-gray-900 shadow ${fullScreen ? "xl:left-[470px]" : ""}`}>
+      <label className={`absolute left-3 top-24 z-[1000] max-w-[calc(100%-5rem)] rounded-lg bg-white p-2 text-sm text-gray-900 shadow ${fullScreen ? "hidden xl:block xl:left-[470px]" : ""}`}>
         <span className="mr-2">UNILUS campus</span>
         <select className="max-w-full" aria-label="UNILUS campus" value={campusId} onChange={(event) => {
           setCampusSelection({ campus: event.target.value as CampusId, ignoredDestinationId: destination?.id });
           onCampusChange?.(event.target.value as CampusId);
         }}>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select>
       </label>
-      {campus.scopeKind === "approximate" && <p role="status" className={`absolute left-3 top-40 z-[1000] max-w-[calc(100%-2rem)] rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 shadow ${fullScreen ? "xl:left-[470px] xl:max-w-sm" : ""}`}>Massmedia: approximate Alick Nkhata Road area, not a verified campus boundary or pin. Official address: {campus.address}. Confirm room locations with campus staff.</p>}
+      {campus.scopeKind === "approximate" && <p role="status" className={`absolute left-3 top-40 z-[1000] max-w-[calc(100%-2rem)] rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 shadow ${fullScreen ? "hidden xl:block xl:left-[470px] xl:max-w-sm" : ""}`}>Massmedia: approximate Alick Nkhata Road area, not a verified campus boundary or pin. Official address: {campus.address}. Confirm room locations with campus staff.</p>}
       {initialUserLocation && !activeUserLocation && showUserLocation && <p role="status" className="absolute bottom-3 left-3 z-[1000] max-w-[85%] rounded bg-white p-2 text-xs text-gray-900 shadow">Your location is outside this campus scope. Campus navigation starts when you are within the mapped area.</p>}
       {destination && !destinationCampus && <p role="alert" className="absolute bottom-3 left-3 z-[1000] rounded bg-white p-2 text-xs text-red-700">This destination needs verified UNILUS campus coordinates.</p>}
       {routeError && activeUserLocation && campusDestination && <p role="alert" className="absolute bottom-3 left-3 z-[1000] max-w-[85%] rounded bg-white p-2 text-xs text-red-700">{routeError}</p>}

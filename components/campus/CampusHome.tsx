@@ -288,7 +288,7 @@ export default function Home() {
       />
 
       {/* Top bar */}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-[1000] p-4 md:p-6">
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-[1000] px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-4 md:px-6 md:pt-[calc(1.5rem+env(safe-area-inset-top))]">
         <CampusNavbar />
       </header>
 
@@ -297,10 +297,10 @@ export default function Home() {
         aria-label="Campus places"
         className={`absolute inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-[999] flex min-h-0 flex-col overflow-hidden rounded-t-3xl border-t-4 border-emerald-600 bg-white shadow-[0_-12px_40px_rgba(5,46,22,0.15)] transition-[height] duration-300 ease-out motion-reduce:transition-none xl:inset-x-auto xl:bottom-6 xl:left-6 xl:top-28 xl:h-auto xl:w-[420px] xl:rounded-2xl xl:shadow-2xl ${
           snap === 'peek'
-            ? 'h-auto max-h-[calc(100dvh-170px-env(safe-area-inset-bottom))]'
+            ? 'h-auto max-h-[calc(100dvh-144px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:max-h-[calc(100dvh-172px-env(safe-area-inset-top)-env(safe-area-inset-bottom))]'
             : snap === 'half'
-              ? 'h-[min(65dvh,calc(100dvh-170px-env(safe-area-inset-bottom)))]'
-              : 'h-[calc(100dvh-156px-env(safe-area-inset-bottom))]'
+              ? 'h-[min(65dvh,calc(100dvh-144px-env(safe-area-inset-top)-env(safe-area-inset-bottom)))] sm:h-[min(65dvh,calc(100dvh-172px-env(safe-area-inset-top)-env(safe-area-inset-bottom)))]'
+              : 'h-[calc(100dvh-144px-env(safe-area-inset-top)-env(safe-area-inset-bottom))] sm:h-[calc(100dvh-172px-env(safe-area-inset-top)-env(safe-area-inset-bottom))]'
         }`}
       >
         <div
@@ -327,14 +327,15 @@ export default function Home() {
           </button>
         </div>
 
-        <div className="max-h-[31%] shrink-0 overflow-y-auto overscroll-contain px-4 pb-2 pt-0 xl:max-h-[45%] xl:px-5 xl:pt-5">
-          <div className={snap === 'peek' ? 'hidden xl:block' : ''}>
-            <label className="text-[11px] font-bold text-[#1769c2]"><span className="sr-only">Campus places selection</span><select aria-label="Campus places selection" className="h-8 max-w-full bg-white" value={campusId} onChange={(event) => { setCampusChoice(event.target.value as CampusId); setSelectedId(null); setCategory('All'); setSearchQuery(''); setRouteInfo(null); }}>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain xl:contents">
+        <div className="shrink-0 px-4 pb-2 pt-0 xl:max-h-[45%] xl:overflow-y-auto xl:overscroll-contain xl:px-5 xl:pt-5">
+          <div>
+            <label className="block text-xs font-bold text-[#1769c2]"><span className="sr-only">Campus places selection</span><select aria-label="Campus places selection" className="h-11 w-full min-w-0 rounded-lg border border-gray-200 bg-white px-2 xl:h-8 xl:w-auto xl:border-0 xl:px-0" value={campusId} onChange={(event) => { setCampusChoice(event.target.value as CampusId); setSelectedId(null); setCategory('All'); setSearchQuery(''); setRouteInfo(null); }}>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
             {campusId === 'massmedia' && <p className="mt-1 text-xs text-amber-800">Approximate Alick Nkhata Road area, not a verified campus boundary or pin.</p>}
-            <h1 className="mt-1 text-xl font-extrabold leading-tight tracking-tight xl:text-2xl">
+            <h1 className={`mt-2 text-lg font-extrabold leading-tight tracking-tight sm:text-xl xl:text-2xl ${snap === 'peek' ? 'hidden xl:block' : ''}`}>
               {isAuthenticated ? `Hi ${firstName}, where to?` : 'Find your way at UNILUS.'}
             </h1>
-            <p className={`mt-1 text-xs leading-relaxed text-gray-500 ${snap !== 'full' ? 'hidden xl:block' : ''}`}>Your campus, connected. Find a place and get walking directions.</p>
+            <p className="mt-1 hidden text-xs leading-relaxed text-gray-500 xl:block">Your campus, connected. Find a place and get walking directions.</p>
           </div>
 
           <div className="mt-3 flex items-center gap-3 rounded-xl border border-gray-300 bg-gray-50 px-3 focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100">
@@ -348,7 +349,7 @@ export default function Home() {
               onFocus={() => setSnap((s) => (s === 'peek' ? 'half' : s))}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search buildings, labs, halls"
-              className="h-11 w-full bg-transparent text-base font-medium outline-none placeholder:text-gray-500 [&::-webkit-search-cancel-button]:hidden"
+              className="h-11 w-full min-w-0 bg-transparent text-base font-medium outline-none placeholder:text-gray-500 [&::-webkit-search-cancel-button]:hidden"
             />
             {searchQuery && (
               <button
@@ -368,7 +369,7 @@ export default function Home() {
             <Link href="/timetable" className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">
               <CalendarDays className="h-4 w-4" /> My timetable
             </Link>
-            <Link href="/assessments" className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"><CalendarDays className="h-4 w-4" /> Quizzes, tests & exams</Link>
+            <Link href="/assessments" className="col-span-2 flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"><CalendarDays className="h-4 w-4 shrink-0" /> Quizzes, tests & exams</Link>
           </div>
 
           {bookingAccess?.allowed === false && (
@@ -412,7 +413,7 @@ export default function Home() {
           ref={listRef}
           tabIndex={0}
           aria-label="Scrollable campus locations"
-          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-gray-100 px-2 [-webkit-overflow-scrolling:touch] ${snap === 'peek' ? 'hidden xl:block' : ''}`}
+          className={`border-t border-gray-100 px-2 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain [-webkit-overflow-scrolling:touch] ${snap === 'peek' ? 'hidden xl:block' : ''}`}
         >
           {locationsState === 'loading' ? (
             <ul aria-busy="true" className="space-y-1 p-2">
@@ -480,9 +481,10 @@ export default function Home() {
             </ul>
           )}
         </div>
+        </div>
 
         {/* Selected destination action bar */}
-        <div className="max-h-[25%] shrink-0 overflow-y-auto overscroll-contain border-t border-gray-200 bg-white px-4 pb-3 pt-3 xl:max-h-[35%] xl:px-5">
+        <div className="max-h-[60%] shrink-0 overflow-y-auto overscroll-contain border-t border-gray-200 bg-white px-4 pb-3 pt-3 xl:max-h-[35%] xl:px-5">
           <div className="mb-2 min-w-0">
             <p className="truncate text-sm font-black uppercase tracking-tight">{selected?.name ?? 'Choose a destination'}</p>
             <p className="flex flex-wrap items-center gap-x-3 text-xs font-semibold text-gray-500">

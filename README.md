@@ -7,6 +7,11 @@ The map-first home includes a searchable, mobile-friendly campus places panel an
 campus switching. Programme, department, campus and year assignments are managed by
 administrators; students can update their contact details.
 
+On phones, the home header uses an icon-only logo with an accessible home label.
+Campus selection, search and places share one scrollable sheet; location actions
+remain separate. The full logo returns at wider widths, and desktop keeps its
+side-panel layout.
+
 ## UNILUS campus map scopes
 
 The [official campus list](https://web.unilus.ac.zm/contact-us/) includes three campuses:

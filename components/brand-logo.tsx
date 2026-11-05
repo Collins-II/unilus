@@ -4,9 +4,10 @@ type BrandLogoProps = {
   className?: string; 
   inverse?: boolean; 
   compact?: boolean; 
+  compactOnMobile?: boolean;
 };
 
-export default function BrandLogo({ className = "", inverse = false, compact = false }: BrandLogoProps) {
+export default function BrandLogo({ className = "", inverse = false, compact = false, compactOnMobile = false }: BrandLogoProps) {
   return (
     <span className={`inline-flex shrink-0 items-center gap-3 ${className}`}>
       <span className={`grid h-11 w-11 place-items-center rounded-full overflow-hidden ${inverse ? "bg-white/10 text-blue-200" : "bg-[var(--brand)] text-white"}`}>
@@ -20,7 +21,7 @@ export default function BrandLogo({ className = "", inverse = false, compact = f
         />
       </span>
       {!compact && (
-        <span className={`text-left ${inverse ? "text-white" : "text-[var(--brand-ink)]"}`}>
+        <span className={`${compactOnMobile ? "hidden sm:block" : ""} text-left ${inverse ? "text-white" : "text-[var(--brand-ink)]"}`}>
           <span className="block text-lg font-extrabold leading-tight tracking-tight">
             UNILUS<span className="font-normal"> Navigator</span>
           </span>

@@ -36,7 +36,7 @@ export function CampusNavbar() {
 
   return (
     <div
-      className="pointer-events-auto relative flex min-w-0 items-center justify-between gap-3"
+      className="pointer-events-auto relative flex min-w-0 items-center justify-between gap-2 sm:gap-3"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && menuOpen) {
           setMenuOpen(false);
@@ -47,11 +47,11 @@ export function CampusNavbar() {
       <Link
         href="/"
         aria-label="UNILUS Navigator home"
-        className="shrink-0 rounded-xl border border-emerald-100 bg-white/95 p-2.5 shadow-lg shadow-black/10 backdrop-blur-md"
+        className="flex h-11 shrink-0 items-center rounded-xl border border-emerald-100 bg-white/95 p-1 shadow-lg shadow-black/10 backdrop-blur-md sm:h-auto sm:p-2.5"
       >
-        <BrandLogo className="gap-2 [&>span:first-child]:h-9 [&>span:first-child]:w-9 [&>span:last-child>span:first-child]:text-sm [&>span:last-child>span:last-child]:text-[8px]" />
+        <BrandLogo compactOnMobile className="gap-2 [&>span:first-child]:h-9 [&>span:first-child]:w-9 [&>span:last-child>span:first-child]:text-sm [&>span:last-child>span:last-child]:text-[8px]" />
       </Link>
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex min-w-0 shrink-0 items-center gap-2">
         <nav aria-label="Campus navigation" className="hidden items-center gap-1 rounded-full bg-white p-1 shadow-lg shadow-black/10 xl:flex">
           {links.map(({ href, label }) => (
             <Link key={href} href={href} aria-current={pathname === href ? 'page' : undefined} className={`rounded-full px-4 py-2 text-sm font-medium text-slate-900 transition-colors focus-visible:outline-2 focus-visible:outline-emerald-600 ${pathname === href ? 'bg-emerald-50 text-emerald-800' : 'hover:bg-gray-100'}`}>
@@ -65,7 +65,7 @@ export function CampusNavbar() {
             <LogOut aria-hidden="true" className="h-4 w-4" /> Log out
           </button>
         ) : status === 'unauthenticated' && pathname !== '/login' ? (
-          <Link href="/login" className="flex h-11 items-center gap-2 rounded-full bg-emerald-600 px-5 text-sm font-semibold text-white shadow-lg shadow-emerald-900/15 transition-colors hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600">
+          <Link href="/login" className="flex h-11 items-center gap-2 rounded-full bg-emerald-600 px-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/15 transition-colors hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 sm:px-5">
             <LogIn aria-hidden="true" className="h-4 w-4" /> Log in
           </Link>
         ) : null}
