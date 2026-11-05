@@ -8,6 +8,7 @@ import User from "@/lib/database/models/User";
 import { LECTURE_ROOM_FILTER } from "@/lib/booking-policy";
 import { requestAdminBookings } from "@/lib/admin-bookings";
 import { bookingErrorResponse, getBookingAccess } from "@/lib/bookings";
+import { localDateKey } from "@/lib/booking-policy";
 
 type BookingDoc = {
   _id?: string | { toString: () => string };
@@ -25,8 +26,7 @@ type BookingDoc = {
 };
 
 const getLocalDateKey = (date: Date) => {
-  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return localDate.toISOString().slice(0, 10);
+  return localDateKey(date);
 };
 
 export async function GET() {
@@ -65,8 +65,8 @@ export async function GET() {
         floor: typeof booking.room === "object" && booking.room ? booking.room.floor : "Ground Floor",
         status: booking.status || "pending",
         date: getLocalDateKey(startTime),
-        startTime: startTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
-        endTime: booking.endTime ? new Date(booking.endTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "",
+        startTime: startTime.toLocaleTimeString([], { timeZone: "Africa/Lusaka", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+        endTime: booking.endTime ? new Date(booking.endTime).toLocaleTimeString([], { timeZone: "Africa/Lusaka", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "",
         createdAt: booking.createdAt ? new Date(booking.createdAt).toISOString() : new Date().toISOString(),
       };
     });
@@ -90,6 +90,7 @@ export async function GET() {
         phone: profile?.phone || "",
         department: profile?.department || "",
         program: profile?.program || "",
+        campus: profile?.campus ?? null,
         year: profile?.year || "",
         role: profile?.role || session.user.role || "student",
       },

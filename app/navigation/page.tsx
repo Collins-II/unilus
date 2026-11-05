@@ -22,6 +22,7 @@ import { useUserLocation } from '@/lib/LocationContext';
 import type { CampusRouteInfo } from '@/components/Map';
 import { haversine, pathProgress, stepOffsets, formatMeters } from '@/lib/routing';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { campusFor, type CampusId } from '@/lib/campus-geography';
 
 const Map = dynamic(() => import('@/components/Map'), {
   ssr: false,
@@ -86,6 +87,7 @@ function NavigationContent() {
   const [routeInfo, setRouteInfo] = useState<CampusRouteInfo | null>(null);
   const [query, setQuery] = useState('');
   const [bookingError, setBookingError] = useState('');
+  const [campusChoice, setCampusChoice] = useState<CampusId>('silverest');
 
   const {
     location: userLocation,
@@ -152,11 +154,12 @@ function NavigationContent() {
   );
 
   const destination = selected?.name ?? '';
+  const campusId = (selected && campusFor({ latitude: selected.lat, longitude: selected.lng })?.id) || campusChoice;
   const speed = mode === 'cycling' ? 4.2 : 1.4;
 
   const liveStops = useMemo(
     () =>
-      stops.map((stop) => {
+      stops.filter((stop) => campusFor({ latitude: stop.lat, longitude: stop.lng })?.id === campusId).map((stop) => {
         if (!userLocation) return { ...stop, eta: '—', distance: 'Location off' };
         const meters = calculateDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
         return {
@@ -165,7 +168,7 @@ function NavigationContent() {
           distance: formatMeters(meters),
         };
       }),
-    [stops, userLocation, speed]
+    [stops, userLocation, speed, campusId]
   );
 
   // Position on the route (null until we have a GPS fix and a road route).
@@ -309,6 +312,13 @@ function NavigationContent() {
                 onRoute={setRouteInfo}
                 onSelect={(id) => router.push(`/navigation?id=${encodeURIComponent(id)}`)}
                 profile={mode === 'cycling' ? 'bike' : 'foot'}
+                campusId={campusId}
+                onCampusChange={(campus) => {
+                  setCampusChoice(campus);
+                  setQuery('');
+                  setRouteInfo(null);
+                  router.replace('/navigation');
+                }}
               />
             </div>
 

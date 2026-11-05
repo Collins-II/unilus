@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/authOptions";
-import { getPortalConfig, portalRequest } from "@/lib/portal";
+import { getPortalConfig, portalRequest, PortalError } from "@/lib/portal";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,10 @@ export async function GET(request: Request) {
 
   try {
     const res = await portalRequest("campus", { query });
-    const body = await res.json().catch(() => ({ error: "Invalid response from admin app." }));
-    return NextResponse.json(body, { status: res.ok ? 200 : 502 });
-  } catch {
-    return NextResponse.json({ error: "Admin app is unreachable." }, { status: 502 });
+    const body = await res.json();
+    return NextResponse.json(body, { status: res.status });
+  } catch (error) {
+    console.error("Campus integration request failed:", error);
+    return NextResponse.json({ error: error instanceof PortalError ? error.message : "Invalid response from admin app." }, { status: error instanceof PortalError ? error.status : 502 });
   }
 }

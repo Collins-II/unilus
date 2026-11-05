@@ -3,7 +3,7 @@ import { getToken } from "next-auth/jwt";
 import { STUDENT_SESSION_COOKIE } from "@/lib/session-cookie";
 
 const PUBLIC_PAGES = ["/", "/login", "/contact", "/navigation"];
-const PUBLIC_API_PREFIXES = ["/api/auth", "/api/register", "/api/locations", "/api/route", "/api/commerce/callback", "/api/commerce/catalog"];
+const PUBLIC_API_PREFIXES = ["/api/auth", "/api/register", "/api/programmes", "/api/locations", "/api/route", "/api/commerce/callback", "/api/commerce/catalog"];
 
 function isPublic(pathname: string) {
   if (PUBLIC_PAGES.includes(pathname)) return true;

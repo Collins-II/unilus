@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
+import { CircleMarker, MapContainer, Polygon, Polyline, Popup, TileLayer, useMap } from 'react-leaflet';
 import { Crosshair } from 'lucide-react';
 import { haversine, pathProgress, type RouteStep } from '@/lib/routing';
 import 'leaflet/dist/leaflet.css';
+import { campuses, campusFor, type CampusId } from '@/lib/campus-geography';
 
 export type CampusMapDestination = {
   id: string;
@@ -38,9 +39,6 @@ export type UserLocationMarkerType = {
   lng: number;
   accuracy: number;
 };
-
-// A city overview until administration supplies verified campus coordinates.
-const CAMPUS_CENTER: [number, number] = [-15.4167, 28.2833];
 
 // Routes come from our own /api/route proxy (configurable provider). Falls back to a straight line.
 async function fetchRoute(
@@ -91,14 +89,23 @@ function MapFocus({
   hasStart,
   route,
   markers,
+  campusId,
 }: {
   destination: CampusMapDestination | undefined;
   hasStart: boolean;
   route: CampusRouteInfo | null;
   markers: CampusMapRoom[];
+  campusId: CampusId;
 }) {
   const map = useMap();
+  const campus = campuses.find((campus) => campus.id === campusId)!;
 
+  useEffect(() => {
+    map.setMinZoom(0);
+    map.setMaxBounds(campus.bounds);
+    map.fitBounds(campus.bounds);
+    map.setMinZoom(map.getBoundsZoom(campus.bounds, true));
+  }, [campus, map]);
   useEffect(() => {
     if (hasStart && route && route.coordinates.length > 1) {
       map.flyToBounds(route.coordinates, { padding: [80, 80], maxZoom: 18, duration: 1 });
@@ -107,7 +114,7 @@ function MapFocus({
     } else if (markers.length) {
       map.fitBounds(markers.map((marker) => [marker.lat, marker.lng] as [number, number]), { padding: [45, 45], maxZoom: 17 });
     }
-  }, [destination, hasStart, route, markers, map]);
+  }, [destination, hasStart, route, markers, map, campus]);
 
   return null;
 }
@@ -160,6 +167,9 @@ export default function Map({
   onSelect,
   onRoute,
   profile = 'foot',
+  campusId: controlledCampus,
+  onCampusChange,
+  fullScreen = false,
 }: {
   destination?: CampusMapDestination;
   markers?: CampusMapRoom[];
@@ -169,10 +179,20 @@ export default function Map({
   onSelect?: (id: string) => void;
   onRoute?: (route: CampusRouteInfo | null) => void;
   profile?: RouteProfile;
+  campusId?: CampusId;
+  onCampusChange?: (campus: CampusId) => void;
+  fullScreen?: boolean;
 }) {
   const [route, setRoute] = useState<CampusRouteInfo | null>(null);
+  const [campusSelection, setCampusSelection] = useState<{ campus: CampusId; ignoredDestinationId?: string }>({ campus: "silverest" });
+  const [routeError, setRouteError] = useState("");
+  const destinationCampus = destination ? campusFor({ latitude: destination.lat, longitude: destination.lng }) : undefined;
+  const campusId = controlledCampus ?? (destinationCampus && campusSelection.ignoredDestinationId !== destination?.id ? destinationCampus.id : campusSelection.campus);
+  const campus = campuses.find((campus) => campus.id === campusId)!;
+  const campusMarkers = useMemo(() => markers.filter((marker) => campusFor({ latitude: marker.lat, longitude: marker.lng })?.id === campusId), [markers, campusId]);
+  const campusDestination = destinationCampus?.id === campusId ? destination : undefined;
 
-  const activeUserLocation = showUserLocation ? initialUserLocation ?? null : null;
+  const activeUserLocation = showUserLocation && initialUserLocation && campusFor({ latitude: initialUserLocation.lat, longitude: initialUserLocation.lng })?.id === campusId ? initialUserLocation : null;
   const startLat = activeUserLocation?.lat;
   const startLng = activeUserLocation?.lng;
 
@@ -192,23 +212,27 @@ export default function Map({
   // Fetch when a start exists and the destination/profile changes, or a re-route is requested.
   useEffect(() => {
     const start = startRef.current;
-    if (!hasStart || !start || !destination) {
+    if (!hasStart || !start || !campusDestination) {
         setRoute(null);
       onRoute?.(null);
       return;
     }
     const controller = new AbortController();
     lastFetchRef.current = Date.now();
-    void fetchRoute(start, [destination.lat, destination.lng], profile, destination.name, controller.signal).then(
+    void fetchRoute(start, [campusDestination.lat, campusDestination.lng], profile, campusDestination.name, controller.signal).then(
       (result) => {
         if (controller.signal.aborted) return;
+        if (result.coordinates.some(([latitude, longitude]) => campusFor({ latitude, longitude })?.id !== campusId)) {
+          setRoute(null); onRoute?.(null); setRouteError("The suggested route leaves this campus scope. Verify an on-campus pedestrian route."); return;
+        }
+        setRouteError("");
         setRoute(result);
         onRoute?.(result);
       }
     );
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasStart, destination?.lat, destination?.lng, profile, tick]);
+  }, [hasStart, campusDestination?.lat, campusDestination?.lng, profile, tick, campusId]);
 
   // Re-route only when the user leaves the path (or retry a failed road route).
   useEffect(() => {
@@ -219,13 +243,30 @@ export default function Map({
       route.source === 'road' ? pathProgress(route.coordinates, start).offPath > REROUTE_DISTANCE_M : true;
     if (off) setTick((n) => n + 1);
   }, [startKey, route]);
-  const routePoints = useMemo(() => route?.coordinates ?? [], [route]);
+  const routePoints = useMemo(() => {
+    const points = route?.coordinates ?? [];
+    return points.every(([latitude, longitude]) => campusFor({ latitude, longitude })?.id === campusId) ? points : [];
+  }, [route, campusId]);
 
   return (
     <div className={`relative w-full overflow-hidden bg-gray-100 ${className}`}>
+      <label className={`absolute left-3 top-24 z-[1000] max-w-[calc(100%-5rem)] rounded-lg bg-white p-2 text-sm text-gray-900 shadow ${fullScreen ? "xl:left-[470px]" : ""}`}>
+        <span className="mr-2">UNILUS campus</span>
+        <select className="max-w-full" aria-label="UNILUS campus" value={campusId} onChange={(event) => {
+          setCampusSelection({ campus: event.target.value as CampusId, ignoredDestinationId: destination?.id });
+          onCampusChange?.(event.target.value as CampusId);
+        }}>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select>
+      </label>
+      {campus.scopeKind === "approximate" && <p role="status" className={`absolute left-3 top-40 z-[1000] max-w-[calc(100%-2rem)] rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950 shadow ${fullScreen ? "xl:left-[470px] xl:max-w-sm" : ""}`}>Massmedia: approximate Alick Nkhata Road area, not a verified campus boundary or pin. Official address: {campus.address}. Confirm room locations with campus staff.</p>}
+      {initialUserLocation && !activeUserLocation && showUserLocation && <p role="status" className="absolute bottom-3 left-3 z-[1000] max-w-[85%] rounded bg-white p-2 text-xs text-gray-900 shadow">Your location is outside this campus scope. Campus navigation starts when you are within the mapped area.</p>}
+      {destination && !destinationCampus && <p role="alert" className="absolute bottom-3 left-3 z-[1000] rounded bg-white p-2 text-xs text-red-700">This destination needs verified UNILUS campus coordinates.</p>}
+      {routeError && activeUserLocation && campusDestination && <p role="alert" className="absolute bottom-3 left-3 z-[1000] max-w-[85%] rounded bg-white p-2 text-xs text-red-700">{routeError}</p>}
       <MapContainer
-        center={destination ? [destination.lat, destination.lng] : CAMPUS_CENTER}
-        zoom={markers.length || destination ? 17 : 12}
+        center={campusDestination ? [campusDestination.lat, campusDestination.lng] : campus.centre}
+        zoom={17}
+        minZoom={15}
+        maxBounds={campus.bounds}
+        maxBoundsViscosity={1}
         scrollWheelZoom
         zoomControl={false}
         className="h-full w-full"
@@ -234,9 +275,18 @@ export default function Map({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url={TILE_URL}
           maxZoom={19}
+          bounds={campus.bounds}
+          noWrap
         />
 
-        <MapFocus destination={destination} hasStart={hasStart} route={route} markers={markers} />
+        {campus.polygon.length > 0 && <>
+        <Polygon positions={campus.polygon.map(([longitude, latitude]) => [latitude, longitude])} pathOptions={{ color: '#1769c2', fillOpacity: 0.05 }} interactive={false} />
+        <Polygon positions={[
+          [[-90, -180], [-90, 180], [90, 180], [90, -180]],
+          campus.polygon.map(([longitude, latitude]): [number, number] => [latitude, longitude]),
+        ]} pathOptions={{ stroke: false, fillColor: '#f1f5f9', fillOpacity: 0.92 }} interactive={false} />
+        </>}
+        <MapFocus destination={campusDestination} hasStart={hasStart} route={routePoints.length ? route : null} markers={campusMarkers} campusId={campusId} />
         <LocateButton location={activeUserLocation} />
 
         {routePoints.length > 1 && (
@@ -255,7 +305,7 @@ export default function Map({
 
         {activeUserLocation && <UserLocationMarker location={activeUserLocation} />}
 
-        {markers.map((room) => (
+        {campusMarkers.map((room) => (
           <CircleMarker
             key={room.id}
             center={[room.lat, room.lng]}

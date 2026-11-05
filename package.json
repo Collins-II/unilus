@@ -27,6 +27,12 @@
     "react-leaflet": "^5.0.0",
     "zod": "^4.6.7"
   },
+  "overrides": {
+    "serialize-javascript": "^7.1.4",
+    "@types/next-pwa": {
+      "next": "$next"
+    }
+  },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",

@@ -1,4 +1,5 @@
 import mongoose, { Schema, type Document } from "mongoose";
+import { campusIds, type CampusId } from "@/lib/campus-geography";
 
 export interface IUser extends Document<mongoose.Types.ObjectId> {
   studentId: string;
@@ -8,6 +9,7 @@ export interface IUser extends Document<mongoose.Types.ObjectId> {
   role: "student" | "staff" | "admin";
   department?: string;
   program?: string;
+  campus?: CampusId;
   year?: string;
   phone?: string;
   status?: "active" | "pending" | "inactive";
@@ -53,6 +55,7 @@ const userSchema = new Schema<IUser>(
     },
     department: { type: String, trim: true },
     program: { type: String, trim: true },
+    campus: { type: String, enum: campusIds },
     year: { type: String, trim: true },
     phone: { type: String, trim: true },
     status: {

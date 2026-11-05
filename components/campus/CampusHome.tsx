@@ -1,159 +1,554 @@
-"use client";
+'use client';
 
-import dynamic from "next/dynamic";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUpRight, BookOpen, CalendarDays, Compass, LayoutGrid, List, LocateFixed, MapPin, Megaphone, Search, Users } from "lucide-react";
-import { campusPlaces, filterCampusPlaces, type CampusPlace } from "@/lib/campus";
-import { useUserLocation } from "@/lib/LocationContext";
+import Link from 'next/link';
+import dynamic from 'next/dynamic';
+import { useSession } from 'next-auth/react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Building2,
+  CalendarDays,
+  Clock,
+  Footprints,
+  Locate,
+  MapPin,
+  Navigation,
+  RotateCw,
+  Search,
+  X,
+} from 'lucide-react';
 
-const CampusMap = dynamic(() => import("@/components/Map"), { ssr: false, loading: () => <div className="grid h-[430px] place-items-center bg-slate-100 text-sm text-slate-500">Loading campus map...</div> });
-type Announcement = { _id: string; title: string; message: string; priority: string; createdAt: string };
-const services = [
-  { icon: Compass, title: "Find your way", copy: "A new lecture room? We will point you in the right direction.", href: "/navigation", label: "Open navigator" },
-  { icon: CalendarDays, title: "Make room for ideas", copy: "Request a lecture room for your next tutorial or campus event.", href: "/bookings", label: "Book a space" },
-  { icon: BookOpen, title: "Own your week", copy: "Your published classes, rooms and times. All in one place.", href: "/timetable", label: "View timetable" },
-  { icon: Users, title: "Better, together", copy: "Find your people. Share notes and build your study circle.", href: "/chat", label: "Connect with students" },
-];
+import { CampusNavbar } from '@/components/ui/CampusNavbar';
+import { calculateDistance } from '@/lib/useGeolocation';
+import { useUserLocation } from '@/lib/LocationContext';
+import type { CampusRouteInfo } from '@/components/Map';
+import { BookingAccessNotice } from '@/components/bookings/BookingAccessNotice';
+import type { BookingAccess } from '@/lib/booking-policy';
+import { localDateKey } from '@/lib/booking-policy';
+import { campuses, campusFor, type CampusId } from '@/lib/campus-geography';
 
-export default function CampusHome() {
-  const { status, data: session } = useSession();
-  const [places, setPlaces] = useState<CampusPlace[]>([]);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("all");
-  const [view, setView] = useState<"map" | "list">("map");
-  const [selectedId, setSelectedId] = useState("");
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [announcementError, setAnnouncementError] = useState("");
-  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
-  const { location, tracking, loading: locationLoading, error: locationError, startTracking, stopTracking } = useUserLocation();
+const CampusMap = dynamic(() => import('@/components/Map'), {
+  ssr: false,
+  loading: () => (
+    <div role="status" className="absolute inset-0 grid place-items-center bg-emerald-50 text-sm font-semibold text-emerald-800">
+      Loading the UNILUS campus map...
+    </div>
+  ),
+});
 
-  const loadPlaces = useCallback(async (signal?: AbortSignal) => {
-    setState("loading");
-    setError("");
-    try {
-      const response = await fetch("/api/locations", { signal });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || "Campus places could not be loaded.");
-      if (!Array.isArray(payload.data)) throw new Error("The campus service returned an invalid location list.");
-      setPlaces(campusPlaces(payload.data));
-      setState("ready");
-    } catch (cause) {
-      if (signal?.aborted) return;
-      setError(cause instanceof Error ? cause.message : "Campus places could not be loaded.");
-      setState("error");
-    }
-  }, []);
+type CampusLocation = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  tag: string;
+};
+
+type RoomRecord = { id: string; isAvailable?: boolean };
+
+type DashboardBooking = {
+  id: string;
+  purpose: string;
+  room: string;
+  roomCode: string;
+  date: string;
+  startTime: string;
+  status: string;
+};
+
+type ApiLocation = {
+  _id?: string;
+  id?: string;
+  name: string;
+  building?: string;
+  category?: string;
+  latitude?: number;
+  longitude?: number;
+  location?: { coordinates?: [number, number] };
+};
+
+const formatDistance = (meters: number) =>
+  meters < 1000 ? `${Math.round(meters / 10) * 10} m` : `${(meters / 1000).toFixed(1)} km`;
+
+const walkMinutes = (seconds: number) => Math.max(1, Math.round(seconds / 60));
+
+export default function Home() {
+  const { data: session, status } = useSession();
+  const { location: userLocation, tracking, loading: locating, error: locationError, startTracking } = useUserLocation();
+
+  const [locations, setLocations] = useState<CampusLocation[]>([]);
+  const [locationsState, setLocationsState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [category, setCategory] = useState('All');
+  const [rooms, setRooms] = useState<RoomRecord[]>([]);
+  const [roomsUnavailable, setRoomsUnavailable] = useState(false);
+  const [roomsLoading, setRoomsLoading] = useState(true);
+  const [bookings, setBookings] = useState<DashboardBooking[]>([]);
+  const [homeDataError, setHomeDataError] = useState('');
+  const [bookingAccess, setBookingAccess] = useState<BookingAccess | null>(null);
+  const [snap, setSnap] = useState<'peek' | 'half' | 'full'>('half');
+  const [reloadKey, setReloadKey] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const homeRequest = useRef(0);
+  const sheetTouchY = useRef<number | null>(null);
+  const [routeInfo, setRouteInfo] = useState<CampusRouteInfo | null>(null);
+  const [campusChoice, setCampusChoice] = useState<CampusId | null>(null);
+  const [assignedCampus, setAssignedCampus] = useState<CampusId | null>(null);
+  const campusId = campusChoice ?? assignedCampus ?? 'silverest';
+  const campusLocations = useMemo(() => locations.filter((location) => campusFor({ latitude: location.lat, longitude: location.lng })?.id === campusId), [locations, campusId]);
+
+  const isAuthenticated = status === 'authenticated';
+  const firstName = (session?.user?.name || 'Student').split(' ')[0];
 
   useEffect(() => {
     const controller = new AbortController();
-    void loadPlaces(controller.signal);
-    return () => controller.abort();
-  }, [loadPlaces]);
 
-  useEffect(() => {
-    if (status !== "authenticated") return;
-    const controller = new AbortController();
-    async function load() {
-      setAnnouncementsLoading(true);
-      setAnnouncementError("");
+    const fetchLocations = async () => {
+      setLocationsState('loading');
       try {
-        const response = await fetch("/api/campus-data?type=announcements", { signal: controller.signal });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "Announcements are unavailable.");
-        if (!Array.isArray(data.announcements)) throw new Error("The campus service returned an invalid announcement list.");
-        setAnnouncements(data.announcements);
-      } catch (cause) {
-        if (!controller.signal.aborted) setAnnouncementError(cause instanceof Error ? cause.message : "Announcements are unavailable.");
-      } finally {
-        if (!controller.signal.aborted) setAnnouncementsLoading(false);
-      }
-    }
-    void load();
-    return () => controller.abort();
-  }, [status]);
+        const res = await fetch('/api/locations', { signal: controller.signal });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to load locations');
+        const raw: ApiLocation[] = json.data ?? json.locations;
+        if (!Array.isArray(raw)) throw new Error('Invalid campus location response');
 
-  const categories = useMemo(() => [...new Set(places.map((place) => place.category))].sort(), [places]);
-  const filtered = useMemo(() => filterCampusPlaces(places, query, category), [places, query, category]);
-  const selected = filtered.find((place) => place.id === selectedId);
-  const markers = useMemo(() => filtered.flatMap((place) => place.lat !== null && place.lng !== null ? [{ id: place.id, name: place.name, lat: place.lat, lng: place.lng, available: place.isAvailable, tag: place.category }] : []), [filtered]);
-  const destination = selected && selected.lat !== null && selected.lng !== null ? { id: selected.id, name: selected.name, lat: selected.lat, lng: selected.lng } : undefined;
+        const mapped: CampusLocation[] = (Array.isArray(raw) ? raw : []).flatMap((item, index) => {
+          const lat = item.latitude ?? item.location?.coordinates?.[1];
+          const lng = item.longitude ?? item.location?.coordinates?.[0];
+          if (typeof lat !== 'number' || typeof lng !== 'number' ||
+              !Number.isFinite(lat) || !Number.isFinite(lng) ||
+              Math.abs(lat) > 90 || Math.abs(lng) > 180) return [];
+          return [{
+            id: item._id || item.id || `loc-${index}`,
+            name: item.name,
+            lat,
+            lng,
+            tag: item.category || item.building || 'Campus',
+          }];
+        });
+        setLocations(mapped);
+        setSelectedId((cur) => (cur && mapped.some((m) => m.id === cur) ? cur : null));
+        setLocationsState('ready');
+      } catch (err) {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) {
+          console.error('Campus locations could not be loaded:', err);
+          setLocations([]);
+          setSelectedId(null);
+          setLocationsState('error');
+        }
+      }
+    };
+    void fetchLocations();
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  const loadHomeData = useCallback(
+    async (signal?: AbortSignal) => {
+      const request = ++homeRequest.current;
+      const current = () => !signal?.aborted && request === homeRequest.current;
+      const todayKey = localDateKey(new Date());
+      const roomsTask = async () => {
+        if (!isAuthenticated) {
+          setRooms([]); setRoomsUnavailable(false); setRoomsLoading(false); return '';
+        }
+        setRoomsLoading(true);
+        try {
+          const response = await fetch(`/api/rooms?date=${todayKey}&start=09:00&end=17:00`, { signal });
+          const data = await response.json();
+          if (!current()) return '';
+          if (!response.ok) throw new Error(data.error || 'Room availability could not be loaded.');
+          if (!Array.isArray(data.rooms)) throw new Error('Invalid room availability response.');
+          setRooms(data.rooms.filter((room: RoomRecord) => campusLocations.some((location) => location.id === room.id)));
+          setRoomsUnavailable(false);
+          return '';
+        } catch (error) {
+          if (!current()) return '';
+          console.error('Room availability could not be loaded:', error);
+          setRooms([]);
+          setRoomsUnavailable(true);
+          return 'Room availability is temporarily unavailable.';
+        } finally {
+          if (current()) setRoomsLoading(false);
+        }
+      };
+
+      const bookingsTask = async () => {
+        if (!isAuthenticated) {
+          setBookings([]);
+          setBookingAccess(null);
+          setAssignedCampus(null);
+          return '';
+        }
+        try {
+          const response = await fetch('/api/dashboard/overview', { signal });
+          const data = await response.json();
+          if (!current()) return '';
+          if (!response.ok) throw new Error(data.error || 'Your bookings could not be loaded.');
+          setBookingAccess(data.bookingAccess ?? null);
+          if (campuses.some((campus) => campus.id === data.profile?.campus)) setAssignedCampus(data.profile.campus);
+          else setAssignedCampus(null);
+          setBookings(Array.isArray(data.bookings) ? data.bookings : []);
+          return '';
+        } catch (error) {
+          if (!current()) return '';
+          setBookings([]);
+          setBookingAccess(null);
+          return error instanceof Error ? error.message : 'Your booking summary is temporarily unavailable.';
+        }
+      };
+
+      const errors = await Promise.all([roomsTask(), bookingsTask()]);
+      if (current()) setHomeDataError(errors.filter(Boolean).join(' '));
+    },
+    [isAuthenticated, campusLocations]
+  );
+
+  useEffect(() => {
+    if (status === 'loading') return;
+    const controller = new AbortController();
+
+    void loadHomeData(controller.signal);
+
+    const onVisible = () => {
+      if (!document.hidden) void loadHomeData(controller.signal);
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      controller.abort();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [status, loadHomeData]);
+  const selected = campusLocations.find((l) => l.id === selectedId) ?? null;
+  const mapMarkers = useMemo(
+    () => campusLocations.map(({ id, name, lat, lng, tag }) => ({ id, name, lat, lng, tag })),
+    [campusLocations]
+  );
+
+  const withDistance = useMemo(
+    () =>
+      campusLocations.map((loc) => ({
+        ...loc,
+        distance: userLocation
+          ? calculateDistance(userLocation.lat, userLocation.lng, loc.lat, loc.lng)
+          : null,
+      })),
+    [campusLocations, userLocation]
+  );
+
+  const deferredQuery = useDeferredValue(searchQuery);
+
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set(campusLocations.map((l) => l.tag)))],
+    [campusLocations]
+  );
+
+  const results = useMemo(() => {
+    const q = deferredQuery.trim().toLowerCase();
+    return withDistance
+      .filter((l) => category === 'All' || l.tag === category)
+      .filter((l) => !q || `${l.name} ${l.tag}`.toLowerCase().includes(q))
+      .sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity) || a.name.localeCompare(b.name));
+  }, [withDistance, deferredQuery, category]);
+
+  const freeRooms = rooms.filter((r) => r.isAvailable === true).length;
+  const availabilityLabel = !isAuthenticated ? 'Sign in to check lecture-room availability' : roomsLoading
+    ? 'Checking rooms...'
+    : roomsUnavailable
+      ? 'Room availability unavailable'
+      : `${freeRooms} rooms available today, 09:00–17:00`;
+  const todayKey = localDateKey(new Date());
+  const currentTime = new Date().toLocaleTimeString('en-GB', { timeZone: 'Africa/Lusaka', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const nextBooking = bookings
+    .filter((b) => b.status !== 'cancelled' && (b.date > todayKey || (b.date === todayKey && b.startTime >= currentTime)))
+    .sort((a, b) => `${a.date}${a.startTime}`.localeCompare(`${b.date}${b.startTime}`))[0];
+
+  const select = (id: string) => {
+    setSelectedId(id);
+    setSnap((s) => (s === 'full' ? 'half' : s));
+  };
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-loc-id="${CSS.escape(selectedId)}"]`);
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [selectedId, snap]);
 
   return (
-    <div>
-      <section className="campus-hero">
-        <div className="campus-container relative z-10 grid items-center gap-10 py-14 md:grid-cols-[1.25fr_0.75fr] md:py-20">
-          <div>
-            <p className="campus-eyebrow text-blue-200"><span className="h-1.5 w-1.5 rounded-full bg-blue-300" /> THE UNIVERSITY OF LUSAKA, AT YOUR FINGERTIPS</p>
-            <h1 className="mt-7 text-5xl font-semibold leading-[1.08] tracking-tight sm:text-6xl lg:text-7xl">Your campus.<br /><span className="text-[var(--brand-highlight)]">Your next chapter.</span></h1>
-            <p className="mt-6 max-w-lg text-sm leading-7 text-slate-300 sm:text-base">Find your lecture. Find your people. Find your place.<br className="hidden sm:block" /> A little less searching. A lot more university.</p>
-            <div className="mt-8 flex flex-wrap items-center gap-7">
-              <a href="#explore" className="drive-button">Explore your campus <ArrowDown size={17} /></a>
-              <Link href="/navigation" className="inline-flex items-center gap-2 text-sm font-medium hover:text-blue-200">Get directions <ArrowUpRight size={17} /></Link>
+    <main id="main-content" tabIndex={-1} className="fixed inset-0 overflow-hidden bg-emerald-50 text-gray-900">
+      <CampusMap
+        fullScreen
+        className="absolute inset-0 h-full"
+        destination={selected ?? undefined}
+        markers={mapMarkers}
+        onSelect={select}
+        onRoute={setRouteInfo}
+        userLocation={userLocation ?? undefined}
+        campusId={campusId}
+        onCampusChange={(campus) => { setCampusChoice(campus); setSelectedId(null); setCategory('All'); setSearchQuery(''); setRouteInfo(null); }}
+      />
+
+      {/* Top bar */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-[1000] p-4 md:p-6">
+        <CampusNavbar />
+      </header>
+
+      {/* Bottom sheet (mobile) / side panel (desktop) */}
+      <section
+        aria-label="Campus places"
+        className={`absolute inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-[999] flex min-h-0 flex-col overflow-hidden rounded-t-3xl border-t-4 border-emerald-600 bg-white shadow-[0_-12px_40px_rgba(5,46,22,0.15)] transition-[height] duration-300 ease-out motion-reduce:transition-none xl:inset-x-auto xl:bottom-6 xl:left-6 xl:top-28 xl:h-auto xl:w-[420px] xl:rounded-2xl xl:shadow-2xl ${
+          snap === 'peek'
+            ? 'h-auto max-h-[calc(100dvh-170px-env(safe-area-inset-bottom))]'
+            : snap === 'half'
+              ? 'h-[min(65dvh,calc(100dvh-170px-env(safe-area-inset-bottom)))]'
+              : 'h-[calc(100dvh-156px-env(safe-area-inset-bottom))]'
+        }`}
+      >
+        <div
+          className="shrink-0 xl:hidden"
+          onTouchStart={(e) => {
+            sheetTouchY.current = e.touches[0].clientY;
+          }}
+          onTouchEnd={(e) => {
+            if (sheetTouchY.current === null) return;
+            const dy = e.changedTouches[0].clientY - sheetTouchY.current;
+            sheetTouchY.current = null;
+            if (dy < -40) setSnap((s) => (s === 'peek' ? 'half' : 'full'));
+            else if (dy > 40) setSnap((s) => (s === 'full' ? 'half' : 'peek'));
+          }}
+        >
+          <button
+            type="button"
+            aria-label={snap === 'full' ? 'Collapse panel' : 'Expand panel'}
+            aria-expanded={snap !== 'peek'}
+            onClick={() => setSnap((s) => (s === 'peek' ? 'half' : s === 'half' ? 'full' : 'peek'))}
+            className="flex h-8 w-full touch-none items-center justify-center"
+          >
+            <span className="h-1.5 w-12 rounded-full bg-gray-300" />
+          </button>
+        </div>
+
+        <div className="max-h-[31%] shrink-0 overflow-y-auto overscroll-contain px-4 pb-2 pt-0 xl:max-h-[45%] xl:px-5 xl:pt-5">
+          <div className={snap === 'peek' ? 'hidden xl:block' : ''}>
+            <label className="text-[11px] font-bold text-[#1769c2]"><span className="sr-only">Campus places selection</span><select aria-label="Campus places selection" className="h-8 max-w-full bg-white" value={campusId} onChange={(event) => { setCampusChoice(event.target.value as CampusId); setSelectedId(null); setCategory('All'); setSearchQuery(''); setRouteInfo(null); }}>{campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></label>
+            {campusId === 'massmedia' && <p className="mt-1 text-xs text-amber-800">Approximate Alick Nkhata Road area, not a verified campus boundary or pin.</p>}
+            <h1 className="mt-1 text-xl font-extrabold leading-tight tracking-tight xl:text-2xl">
+              {isAuthenticated ? `Hi ${firstName}, where to?` : 'Find your way at UNILUS.'}
+            </h1>
+            <p className={`mt-1 text-xs leading-relaxed text-gray-500 ${snap !== 'full' ? 'hidden xl:block' : ''}`}>Your campus, connected. Find a place and get walking directions.</p>
+          </div>
+
+          <div className="mt-3 flex items-center gap-3 rounded-xl border border-gray-300 bg-gray-50 px-3 focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-100">
+            <Search className="h-5 w-5 shrink-0 text-gray-500" />
+            <input
+              type="search"
+              inputMode="search"
+              enterKeyHint="search"
+              aria-label="Search campus places"
+              value={searchQuery}
+              onFocus={() => setSnap((s) => (s === 'peek' ? 'half' : s))}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search buildings, labs, halls"
+              className="h-11 w-full bg-transparent text-base font-medium outline-none placeholder:text-gray-500 [&::-webkit-search-cancel-button]:hidden"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => setSearchQuery('')}
+                className="flex h-8 w-8 shrink-0 items-center justify-center"
+              >
+                <X className="h-4 w-4 text-gray-500" />
+              </button>
+            )}
+          </div>
+          <div className={`mt-3 grid-cols-2 gap-2 ${snap !== 'full' ? 'hidden xl:grid' : 'grid'}`}>
+            <Link href="/bookings" className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-100">
+              <Building2 className="h-4 w-4" /> Book a room
+            </Link>
+            <Link href="/timetable" className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+              <CalendarDays className="h-4 w-4" /> My timetable
+            </Link>
+            <Link href="/assessments" className="flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-200 px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50"><CalendarDays className="h-4 w-4" /> Quizzes, tests & exams</Link>
+          </div>
+
+          {bookingAccess?.allowed === false && (
+            <div className="mt-2"><BookingAccessNotice access={bookingAccess} /></div>
+          )}
+          {homeDataError ? (
+            <div role="alert" className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+              <p className="text-xs leading-relaxed text-amber-900">{homeDataError}</p>
+              <button
+                type="button"
+                onClick={() => void loadHomeData()}
+                className="min-h-9 shrink-0 rounded-lg px-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+              >
+                Retry
+              </button>
             </div>
+          ) : null}
+
+          {categories.length > 1 && (
+            <div className={`-mx-4 mt-2 gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] xl:-mx-5 xl:px-5 ${snap === 'peek' ? 'hidden xl:flex' : 'flex'}`}>
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setCategory(cat)}
+                  className={`h-9 shrink-0 rounded-full border px-4 text-xs font-semibold transition ${
+                    category === cat ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-gray-200 bg-white text-gray-600 hover:bg-emerald-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <p role="status" className={`shrink-0 px-4 py-2 text-[11px] font-semibold text-gray-500 xl:px-5 ${snap === 'peek' ? 'hidden xl:block' : ''}`}>
+          {locationsState === 'loading' ? 'Loading campus places...' : locationsState === 'error' ? 'Campus places unavailable' : `${results.length} ${results.length === 1 ? 'place' : 'places'}${searchQuery || category !== 'All' ? ' found' : ' to explore'}`}
+        </p>
+        <div
+          ref={listRef}
+          tabIndex={0}
+          aria-label="Scrollable campus locations"
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-gray-100 px-2 [-webkit-overflow-scrolling:touch] ${snap === 'peek' ? 'hidden xl:block' : ''}`}
+        >
+          {locationsState === 'loading' ? (
+            <ul aria-busy="true" className="space-y-1 p-2">
+              {[0, 1, 2, 3].map((n) => (
+                <li key={n} className="h-14 animate-pulse rounded bg-gray-100" />
+              ))}
+            </ul>
+          ) : results.length === 0 ? (
+            <div className="px-4 py-8 text-center text-sm text-gray-500">
+              <p>
+                {locationsState === 'error'
+                  ? 'Campus places could not be loaded. Check your connection and try again.'
+                  : campusLocations.length === 0
+                    ? 'No verified places have been published for this campus yet.'
+                    : 'No places match your search.'}
+              </p>
+              {locationsState === 'error' ? (
+                <button
+                  type="button"
+                  onClick={() => setReloadKey((k) => k + 1)}
+                  className="mt-3 inline-flex h-11 items-center gap-2 rounded border-2 border-black px-4 text-xs font-black uppercase tracking-widest"
+                >
+                  <RotateCw className="h-4 w-4" /> Retry
+                </button>
+              ) : searchQuery || category !== 'All' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCategory('All');
+                  }}
+                  className="mt-3 inline-flex h-11 items-center rounded border-2 border-black px-4 text-xs font-black uppercase tracking-widest"
+                >
+                  Clear filters
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <ul>
+              {results.map((loc, i) => (
+                <li key={loc.id} data-loc-id={loc.id} className="border-b border-gray-100 last:border-0">
+                  <button
+                    type="button"
+                    onClick={() => select(loc.id)}
+                    aria-current={loc.id === selected?.id}
+                    className={`flex min-h-[60px] w-full items-center gap-3 px-2 py-2.5 text-left transition active:bg-gray-100 ${
+                      loc.id === selected?.id ? 'bg-green-50 shadow-[inset_4px_0_0_0_#1769c2]' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="w-7 shrink-0 text-center text-xl font-black tabular-nums text-gray-300">{i + 1}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm font-bold tracking-tight">{loc.name}</span>
+                      <span className="flex items-center gap-1 truncate text-xs font-semibold text-gray-500">
+                        <MapPin className="h-3 w-3 shrink-0" /> {loc.tag}
+                      </span>
+                    </span>
+                    {loc.distance !== null && (
+                      <span className="shrink-0 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-700">
+                        {formatDistance(loc.distance)}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Selected destination action bar */}
+        <div className="max-h-[25%] shrink-0 overflow-y-auto overscroll-contain border-t border-gray-200 bg-white px-4 pb-3 pt-3 xl:max-h-[35%] xl:px-5">
+          <div className="mb-2 min-w-0">
+            <p className="truncate text-sm font-black uppercase tracking-tight">{selected?.name ?? 'Choose a destination'}</p>
+            <p className="flex flex-wrap items-center gap-x-3 text-xs font-semibold text-gray-500">
+              <span className="inline-flex items-center gap-1">
+                <Footprints className="h-3.5 w-3.5" />
+                {!selected
+                  ? 'Tap a place on the map or list'
+                  : routeInfo
+                    ? `${routeInfo.source === 'straight' ? '≈ ' : ''}${formatDistance(routeInfo.distance)} · ~${walkMinutes(routeInfo.duration)} min walk${routeInfo.source === 'straight' ? ' (approx.)' : ''}`
+                    : userLocation
+                      ? campusFor({ latitude: userLocation.lat, longitude: userLocation.lng })?.id === campusId
+                        ? 'Select Start navigation for route details'
+                        : 'Your location is outside this campus scope'
+                      : 'Turn on location for distance'}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Building2 className="h-3.5 w-3.5" />
+                {availabilityLabel}
+              </span>
+            </p>
           </div>
-          <div aria-hidden="true" className="campus-compass-art hidden md:grid">
-            <div className="campus-orbit"><span className="campus-orbit-label">LEARN. CONNECT. EXPLORE.</span><Compass size={150} strokeWidth={0.65} /><span className="campus-orbit-north">N</span></div>
-            <div className="campus-art-caption"><MapPin size={15} /> A world of possibility. One campus companion.</div>
-          </div>
+          {!userLocation ? (
+            <>
+              <button
+                type="button"
+                onClick={startTracking}
+                disabled={locating}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-bold text-white transition hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-60"
+              >
+                <Locate className="h-5 w-5" /> {locating ? 'Finding you…' : tracking ? 'Retry location' : 'Use my location'}
+              </button>
+              {(locationError || snap === 'full') && (
+                <p role={locationError ? 'alert' : undefined} className="mt-1.5 text-center text-[11px] font-semibold text-gray-600">
+                  {locationError || 'Navigation uses your real position. Allow location to get directions.'}
+                </p>
+              )}
+            </>
+          ) : selected ? (
+            <Link
+              href={`/navigation?id=${encodeURIComponent(selected.id)}`}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-sm font-bold text-white transition hover:bg-emerald-700 active:scale-[0.98]"
+            >
+              <Navigation className="h-5 w-5" /> Start navigation
+            </Link>
+          ) : (
+            <div className="flex h-12 w-full items-center justify-center rounded bg-gray-100 text-xs font-black uppercase tracking-widest text-gray-500">
+              Pick a destination
+            </div>
+          )}
+          {nextBooking && snap !== 'peek' && (
+            <Link
+              href="/bookings"
+              className="mt-2 flex items-center gap-3 rounded-xl bg-emerald-950 px-3 py-2.5 text-sm text-white"
+            >
+              <CalendarDays className="h-5 w-5 shrink-0 text-[#60a5fa]" />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-semibold">{nextBooking.purpose}</span> · {nextBooking.room}
+                <span className="block text-[11px] text-emerald-200">{nextBooking.date === todayKey ? 'Today' : nextBooking.date}</span>
+              </span>
+              <span className="inline-flex shrink-0 items-center gap-1 font-bold text-[#60a5fa]">
+                <Clock className="h-4 w-4" /> {nextBooking.startTime}
+              </span>
+            </Link>
+          )}
         </div>
-        <div className="border-t border-white/10"><div className="campus-container flex flex-wrap items-center justify-between gap-3 py-5 text-[10px] font-medium uppercase tracking-widest text-slate-300"><span>FIND YOUR PLACE. MAKE YOUR MARK.</span><span className="flex items-center gap-2"><Compass size={15} className="text-blue-300" /> Built for life at UNILUS</span></div></div>
       </section>
-
-      <section className="border-b border-border bg-white">
-        <div className="campus-container grid grid-cols-2 gap-6 py-7 lg:grid-cols-4">
-          {services.map(({ icon: Icon, title, href }, index) => <Link key={href} href={href} className={`group flex items-center gap-3 ${index ? "lg:border-l lg:border-border lg:pl-7" : ""}`}><Icon size={20} strokeWidth={1.6} className="shrink-0 text-primary" /><span className="text-xs font-semibold text-slate-700 group-hover:text-primary">{title}</span><ArrowUpRight className="ml-auto hidden h-3.5 w-3.5 text-slate-400 sm:block" /></Link>)}
-        </div>
-      </section>
-
-      <section id="explore" className="campus-container scroll-mt-6 py-12 sm:py-16">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div><p className="campus-eyebrow text-slate-500">01 / EXPLORE</p><h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--brand-ink)] sm:text-4xl">Where are you headed?</h2><p className="mt-3 text-sm text-slate-500">Discover the spaces that make up your university.</p></div>
-          <div className="flex rounded-lg border border-border bg-white p-1">{([{ name: "map", icon: LayoutGrid }, { name: "list", icon: List }] as const).map(({ name, icon: Icon }) => <button key={name} type="button" aria-pressed={view === name} onClick={() => setView(name)} className={`flex min-h-10 items-center gap-2 rounded px-4 text-xs font-semibold capitalize ${view === name ? "bg-[var(--brand-ink)] text-white" : "text-slate-500"}`}><Icon size={14} />{name}</button>)}</div>
-        </div>
-        <div className="mt-7 flex flex-col gap-3 rounded-xl border border-border bg-white p-3 sm:flex-row">
-          <label className="flex min-w-0 flex-1 items-center gap-3 px-2"><Search size={19} className="shrink-0 text-slate-400" /><span className="sr-only">Search campus places</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search rooms, buildings, or a place..." className="min-h-11 w-full bg-transparent text-sm outline-none" /></label>
-          <label className="sr-only" htmlFor="place-category">Place category</label>
-          <select id="place-category" value={category} onChange={(event) => setCategory(event.target.value)} className="min-h-11 rounded-lg border border-border bg-slate-50 px-4 text-sm sm:max-w-52"><option value="all">All campus spaces</option>{categories.map((name) => <option key={name}>{name}</option>)}</select>
-          <button type="button" onClick={tracking ? stopTracking : startTracking} className="ui-btn ui-btn-secondary"><LocateFixed size={16} />{locationLoading ? "Locating..." : tracking ? "Location on" : "Use my location"}</button>
-        </div>
-        {locationError && <p role="alert" className="mt-3 text-sm text-red-700">{locationError}</p>}
-        {state === "loading" ? <div role="status" className="mt-5 grid h-80 place-items-center rounded-xl border border-border bg-white text-sm text-slate-500">Loading your campus spaces...</div> : state === "error" ? <div role="alert" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-7"><h3 className="font-semibold text-slate-900">Campus directory unavailable</h3><p className="mt-2 text-sm text-amber-900">{error}</p><button type="button" onClick={() => void loadPlaces()} className="ui-btn ui-btn-secondary mt-4">Try again</button></div> : <>
-          <p aria-live="polite" className="my-4 text-xs text-slate-500">{filtered.length} {filtered.length === 1 ? "space" : "spaces"}{query && ` matching "${query}"`}<span className="mx-2 text-slate-300">/</span>Directory maintained by campus administration</p>
-          {!filtered.length ? <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center"><MapPin className="mx-auto text-primary" size={28} /><h3 className="mt-3 font-semibold">{places.length ? "No spaces match your search" : "Your campus directory is getting ready"}</h3><p className="mt-2 text-sm text-slate-500">{places.length ? "Try a different name or category." : "Published spaces will appear here when campus administration adds them."}</p>{(query || category !== "all") && <button type="button" className="ui-btn ui-btn-secondary mt-4" onClick={() => { setQuery(""); setCategory("all"); }}>Clear filters</button>}</div> :
-            <div className={view === "map" ? "grid gap-4 lg:grid-cols-[1fr_320px]" : ""}>
-              {view === "map" && <div className="relative min-w-0 overflow-hidden rounded-xl border border-border">
-                <CampusMap markers={markers} destination={destination} userLocation={location ?? undefined} showUserLocation={tracking} onSelect={setSelectedId} className="h-[430px] lg:h-[520px]" />
-                {!markers.length && <p className="absolute bottom-4 left-4 right-4 z-[1000] rounded-lg bg-white p-4 text-sm shadow">These spaces do not have map coordinates yet. Their details are listed alongside.</p>}
-              </div>}
-              <ul className={view === "map" ? "flex max-h-[520px] flex-col gap-3 overflow-y-auto lg:pr-1" : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"}>
-                {filtered.map((place) => <li key={place.id} className={`rounded-xl border bg-white p-5 transition ${selectedId === place.id ? "border-primary ring-1 ring-primary" : "border-border hover:border-blue-300"}`}>
-                  <div className="flex items-center justify-between gap-2"><span className="text-[9px] font-bold uppercase tracking-widest text-primary">{place.category}</span><span className={`h-2 w-2 shrink-0 rounded-full ${place.isAvailable ? "bg-blue-500" : "bg-amber-400"}`} title={place.isAvailable ? "Open for use (booking availability varies)" : "Currently unavailable"} /></div>
-                  <button type="button" className="mt-3 text-left text-base font-semibold text-[var(--brand-ink)] hover:text-primary" onClick={() => setSelectedId(place.id)}>{place.name}</button>
-                  <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><MapPin size={12} />{place.building}{place.code && ` / ${place.code}`}</p>
-                  {place.capacity > 0 && <p className="mt-2 text-xs text-slate-500">Capacity: {place.capacity} people</p>}
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-                    {place.lat !== null ? <Link href={`/navigation?id=${encodeURIComponent(place.id)}`} className="flex items-center gap-2 text-xs font-semibold text-primary">Get directions <ArrowUpRight size={14} /></Link> : <span className="text-xs text-slate-400">Map location not yet listed</span>}
-                    <Link href={`/bookings?room=${encodeURIComponent(place.id)}`} className="text-xs font-semibold text-slate-600">View bookings</Link>
-                  </div>
-                </li>)}
-              </ul>
-            </div>}
-        </>}
-      </section>
-
-      <section className="border-y border-border bg-[var(--brand-soft)]"><div className="campus-container py-12 sm:py-16">
-        <p className="campus-eyebrow text-slate-500">02 / CAMPUS LIFE, SIMPLIFIED</p><div className="mt-3 flex flex-wrap items-end justify-between gap-4"><h2 className="text-3xl font-semibold tracking-tight text-[var(--brand-ink)]">More than getting from A to B.</h2><span className="text-sm text-slate-500">Everything you need for the day ahead.</span></div>
-        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{services.map(({ icon: Icon, title, copy, href, label }) => <Link key={href} href={href} className="group flex flex-col rounded-xl border border-blue-100 bg-white p-6 transition hover:-translate-y-1 hover:shadow-lg"><Icon size={25} strokeWidth={1.5} className="text-primary" /><h3 className="mt-7 text-lg font-semibold text-[var(--brand-ink)]">{title}</h3><p className="mt-3 flex-1 text-sm leading-6 text-slate-500">{copy}</p><span className="mt-7 flex items-center justify-between text-xs font-semibold text-primary">{label}<ArrowUpRight size={17} /></span></Link>)}</div>
-      </div></section>
-
-      <section className="campus-container py-12 sm:py-16">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="campus-eyebrow text-slate-500">03 / IN THE KNOW</p><h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--brand-ink)]">Around campus.</h2></div><Megaphone size={28} strokeWidth={1.4} className="text-primary" /></div>
-        {status !== "authenticated" ? <div className="mt-7 flex flex-wrap items-center justify-between gap-5 rounded-xl border border-border bg-white p-7"><div><h3 className="font-semibold">Your university. Your updates.</h3><p className="mt-2 text-sm text-slate-500">Sign in to see campus announcements and plan your week.</p></div><Link href="/login" className="ui-btn ui-btn-primary">Student sign in <ArrowRight size={16} /></Link></div> : announcementError ? <p role="alert" className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">{announcementError} <Link href="/timetable" className="underline">Open campus updates</Link></p> : announcementsLoading ? <p role="status" className="mt-6 text-sm text-slate-500">Loading campus updates...</p> : announcements.length ? <div className="mt-7 grid gap-4 md:grid-cols-3">{announcements.slice(0, 3).map((item) => <article key={item._id} className="rounded-xl border border-border bg-white p-6"><p className={`text-[10px] font-semibold uppercase tracking-widest ${item.priority === "urgent" ? "text-red-600" : "text-primary"}`}>{item.priority} / {new Date(item.createdAt).toLocaleDateString("en-ZM", { day: "numeric", month: "short" })}</p><h3 className="mt-4 font-semibold text-slate-900">{item.title}</h3><p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-500">{item.message}</p></article>)}</div> : <p className="mt-7 rounded-xl border border-border bg-white p-7 text-sm text-slate-500">You are all caught up{session?.user?.name ? `, ${session.user.name.split(" ")[0]}` : ""}. New campus announcements will appear here.</p>}
-      </section>
-    </div>
+    </main>
   );
 }

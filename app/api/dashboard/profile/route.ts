@@ -30,6 +30,7 @@ export async function GET() {
         phone: user.phone || "",
         department: user.department || "",
         program: user.program || "",
+        campus: user.campus ?? null,
         year: user.year || "",
         role: user.role,
       },
@@ -48,12 +49,14 @@ export async function PATCH(request: Request) {
     }
 
     const body = await request.json();
+    if (!body || typeof body !== "object" || Array.isArray(body) ||
+        (body.name !== undefined && typeof body.name !== "string") ||
+        (body.phone !== undefined && typeof body.phone !== "string")) {
+      return NextResponse.json({ error: "Provide valid text contact details." }, { status: 422 });
+    }
     const updates = {
       name: typeof body.name === "string" ? body.name.trim() : undefined,
       phone: typeof body.phone === "string" ? body.phone.trim() : undefined,
-      department: typeof body.department === "string" ? body.department.trim() : undefined,
-      program: typeof body.program === "string" ? body.program.trim() : undefined,
-      year: typeof body.year === "string" ? body.year.trim() : undefined,
     };
 
     await connectToDatabase();
@@ -62,12 +65,18 @@ export async function PATCH(request: Request) {
     if (!user) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
+    if ((body.program !== undefined && body.program !== user.program) || (body.department !== undefined && body.department !== user.department) || (body.year !== undefined && body.year !== user.year) || body.campus !== undefined) {
+      return NextResponse.json({ error: "Study programme, year, department and campus are managed by administrators. Contact campus staff for reassignment." }, { status: 403 });
+    }
 
-    Object.entries(updates).forEach(([key, value]) => {
-      if (value !== undefined && value !== "") {
-        user[key as keyof typeof updates] = value as never;
-      }
-    });
+    if (updates.name !== undefined) {
+      if (!updates.name || updates.name.length > 120) return NextResponse.json({ error: "Name must contain 1-120 characters." }, { status: 422 });
+      user.name = updates.name;
+    }
+    if (updates.phone !== undefined) {
+      if (updates.phone.length > 30) return NextResponse.json({ error: "Phone must not exceed 30 characters." }, { status: 422 });
+      user.phone = updates.phone;
+    }
 
     await user.save();
 
@@ -81,6 +90,7 @@ export async function PATCH(request: Request) {
         phone: user.phone || "",
         department: user.department || "",
         program: user.program || "",
+        campus: user.campus ?? null,
         year: user.year || "",
         role: user.role,
       },

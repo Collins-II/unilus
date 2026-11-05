@@ -6,7 +6,7 @@ import { useSession } from 'next-auth/react';
 import { useChatUnread } from '@/lib/ChatUnreadContext';
 import { CalendarDays, House, MessageSquare, Navigation } from 'lucide-react';
 
-export function MobileNav() {
+export function MobileNav({ className = "lg:hidden" }: { className?: string }) {
   const { status } = useSession();
   const { unread } = useChatUnread();
   const pathname = usePathname();
@@ -23,7 +23,7 @@ export function MobileNav() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-[1200] border-t border-border bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className={`fixed inset-x-0 bottom-0 z-[1200] border-t border-border bg-white pb-[env(safe-area-inset-bottom)] ${className}`}
     >
       <div className="grid grid-cols-4">
         {links.map(({ href, label, icon: Icon }) => {

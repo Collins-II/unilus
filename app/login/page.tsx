@@ -6,14 +6,12 @@ import { useSearchParams } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
 import { Loader2, LockKeyhole, UserPlus } from 'lucide-react';
 import BrandLogo from '@/components/brand-logo';
+import { campusName } from '@/lib/campus-geography';
 import {
   AcademicYearSelect,
-  DepartmentSelect,
   PasswordField,
   PhoneInput,
-  ProgramSelect,
   TextField,
-  departmentPrograms,
 } from '@/components/auth/StudentProfileFields';
 
 type AuthMode = 'login' | 'register';
@@ -45,8 +43,10 @@ function StudentAuthForm() {
   const [name, setName] = useState('');
   const [studentId, setStudentId] = useState('');
   const [email, setEmail] = useState('');
-  const [department, setDepartment] = useState('');
   const [program, setProgram] = useState('');
+  const [programmes, setProgrammes] = useState<{ code: string; name: string; campus: string; department: { code: string; name: string } }[]>([]);
+  const [catalogueError, setCatalogueError] = useState('');
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
   const [year, setYear] = useState('');
   const [countryCode, setCountryCode] = useState('+260');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -80,10 +80,18 @@ function StudentAuthForm() {
     setSuccess('');
   }
 
-  function handleDepartmentChange(nextDepartment: string) {
-    setDepartment(nextDepartment);
-    setProgram(departmentPrograms[nextDepartment]?.[0] ?? '');
-  }
+  useEffect(() => {
+    if (mode !== 'register') return;
+    const controller = new AbortController();
+    setCatalogueLoading(true);
+    void fetch('/api/programmes', { signal: controller.signal }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || !Array.isArray(data.programmes)) throw new Error(data.error || 'Programme catalogue is unavailable.');
+      if (controller.signal.aborted) return;
+      setProgrammes(data.programmes); setCatalogueError(data.programmes.length ? '' : 'No study programmes have been configured yet. Contact campus administration before registering.');
+    }).catch((error) => { if (!controller.signal.aborted) setCatalogueError(error instanceof Error ? error.message : 'Programme catalogue is unavailable.'); }).finally(() => { if (!controller.signal.aborted) setCatalogueLoading(false); });
+    return () => controller.abort();
+  }, [mode]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,6 +107,7 @@ function StudentAuthForm() {
         if (!name.trim()) throw new Error('Please enter your full name.');
         if (!/^\d{6,12}$/.test(normalizedId)) throw new Error('Student ID must be 6–12 digits.');
         if (!email.trim()) throw new Error('Please enter your university email.');
+        if (!program || !programmes.some((item) => item.code === program)) throw new Error('Select an administrator-managed study programme.');
         if (password.length < 6) throw new Error('Password must be at least 6 characters.');
         if (password !== confirmPassword) throw new Error('Passwords do not match.');
 
@@ -110,7 +119,6 @@ function StudentAuthForm() {
             studentId: normalizedId,
             email,
             password,
-            department,
             program,
             year,
             phone: phoneNumber ? `${countryCode}${phoneNumber.replace(/\D/g, '')}` : '',
@@ -173,9 +181,11 @@ function StudentAuthForm() {
           {registering && (
             <>
               <div className="form-row">
-                <DepartmentSelect value={department} onChange={handleDepartmentChange} />
-                <ProgramSelect value={program} onChange={setProgram} department={department} />
+                <label className="form-field"><span>Study programme</span><select aria-label="Study programme" value={program} onChange={(event) => setProgram(event.target.value)} required><option value="">Select programme</option>{programmes.map((item) => <option key={item.code} value={item.code}>{item.name} ({campusName(item.campus)})</option>)}</select></label>
+                <p className="text-xs text-gray-500">Your department and campus are assigned by the programme catalogue managed by campus administrators.</p>
               </div>
+              {catalogueError && <p role="alert" className="form-error">{catalogueError}</p>}
+              {catalogueLoading && <p role="status">Loading study programmes...</p>}
               <div className="form-row">
                 <AcademicYearSelect value={year} onChange={setYear} />
                 <PhoneInput countryCode={countryCode} phoneNumber={phoneNumber} onCountryCodeChange={setCountryCode} onPhoneNumberChange={setPhoneNumber} />
@@ -213,7 +223,7 @@ function StudentAuthForm() {
           {error && <div className="form-error" role="alert">{error}</div>}
           {success && <div className="form-success" role="status">{success}</div>}
 
-          <button type="submit" className="primary-button" disabled={working}>
+          <button type="submit" className="primary-button" disabled={working || (registering && (catalogueLoading || Boolean(catalogueError) || !program))}>
             {working ? <Loader2 size={16} className="spin" /> : registering ? <UserPlus size={16} /> : <LockKeyhole size={16} />}
             {working ? (registering ? 'Creating account…' : 'Signing in…') : registering ? 'Create account' : 'Sign in'}
           </button>
@@ -224,7 +234,7 @@ function StudentAuthForm() {
         </small>
         <div className="login-footer-links">
           <Link href="/">Explore campus</Link>
-          <a href="https://www.unilus.ac.zm" target="_blank" rel="noopener noreferrer">unilus.ac.zm</a>
+          <a href="https://web.unilus.ac.zm" target="_blank" rel="noopener noreferrer">unilus.ac.zm</a>
         </div>
       </div>
     </main>

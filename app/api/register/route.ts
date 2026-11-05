@@ -4,6 +4,8 @@ import bcrypt from "bcryptjs";
 import { connectToDatabase } from "@/lib/database";
 import { apiErrorResponse } from "@/lib/database/errors";
 import User from "@/lib/database/models/User";
+import Programme from "@/lib/database/models/Programme";
+import mongoose from "mongoose";
 import { clientIp, rateLimit, RateLimitError } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
@@ -57,17 +59,28 @@ export async function POST(request: Request) {
       }
 
       const hashedPassword = await bcrypt.hash(password, 12);
-      const user = await User.create({
+      const locks = mongoose.connection.collection("campusschedulelocks");
+      const lockId = new mongoose.Types.ObjectId("000000000000000000000001");
+      await locks.updateOne({ _id: lockId }, { $setOnInsert: { version: 0 } }, { upsert: true });
+      const user = await mongoose.connection.transaction(async (session) => {
+        await locks.updateOne({ _id: lockId }, { $inc: { version: 1 } }, { session });
+        const programme = await Programme.findOne({ code: program.toUpperCase() }).session(session).lean();
+        if (!programme) throw new Error("PROGRAMME_NOT_FOUND");
+        const assignedDepartment = await mongoose.connection.collection("departments").findOne({ _id: programme.department }, { session });
+        if (!assignedDepartment) throw new Error("PROGRAMME_NOT_FOUND");
+        return (await User.create([{
         studentId,
         name,
         email,
         password: hashedPassword,
         role,
-        department,
-        program,
+        department: assignedDepartment.code,
+        program: programme.code,
+        campus: programme.campus,
         year,
         phone,
         status: "active",
+      }], { session }))[0];
       });
 
       return NextResponse.json(
@@ -81,6 +94,7 @@ export async function POST(request: Request) {
             role: user.role,
             department: user.department,
             program: user.program,
+            campus: user.campus,
             year: user.year,
             phone: user.phone,
           },
@@ -88,6 +102,7 @@ export async function POST(request: Request) {
         { status: 201 }
       );
     } catch (error) {
+      if (error instanceof Error && error.message === "PROGRAMME_NOT_FOUND") return NextResponse.json({ error: "Select a valid administrator-managed study programme." }, { status: 422 });
       return apiErrorResponse(error, "register.create", "Unable to create your account right now.");
     }
   } catch (error) {

@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
     const availableRooms = await Promise.all(
       rooms.map(async (room: RoomDoc) => {
-        const [conflict, timetableConflict] = await Promise.all([Booking.findOne({
+        const [conflict, timetableConflict, assessmentConflict] = await Promise.all([Booking.findOne({
           room: room._id,
           status: { $ne: "cancelled" },
           startTime: { $lt: selectedEnd },
@@ -58,7 +58,7 @@ export async function GET(request: Request) {
         }).lean(), db.collection("timetableallocations").findOne({
           room: room._id, status: "published", dayOfWeek: slot.dayOfWeek,
           startTime: { $lt: slot.endTime }, endTime: { $gt: slot.startTime },
-        }, { projection: { _id: 1 } })]);
+        }, { projection: { _id: 1 } }), db.collection("assessments").findOne({ room: room._id, status: "published", startTime: { $lt: selectedEnd }, endTime: { $gt: selectedStart } }, { projection: { _id: 1 } })]);
 
         return {
           id: String(room._id),
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
           floor: room.floor === undefined ? "Floor not listed" : `Floor ${room.floor}`,
           capacity: room.capacity,
           description: room.description,
-          isAvailable: !conflict && !timetableConflict && room.isAvailable !== false,
+          isAvailable: !conflict && !timetableConflict && !assessmentConflict && room.isAvailable !== false,
         };
       })
     );

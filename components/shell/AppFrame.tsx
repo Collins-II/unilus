@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { useEffect, useState, type ReactNode } from "react";
 import {
-  ArrowUpRight,
   Bell,
   CalendarClock,
   CalendarDays,
@@ -30,6 +29,7 @@ const navigation = [
   { label: "Navigate", href: "/navigation", icon: Navigation },
   { label: "Room bookings", href: "/bookings", icon: CalendarDays },
   { label: "Timetable", href: "/timetable", icon: CalendarClock },
+  { label: "Quizzes, tests & exams", href: "/assessments", icon: CalendarClock },
   { label: "Study circles", href: "/chat", icon: MessagesSquare },
   { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Campus services", href: "/commerce", icon: ShoppingBag },
@@ -37,8 +37,8 @@ const navigation = [
 
 const extraTitles: Record<string, string> = { "/booking/": "Booking details" };
 
-/** Pages that always render the public website chrome. `/login` renders bare and `/navigation` only uses the workspace when signed in. */
-const PUBLIC_CHROME = new Set(["/", "/contact"]);
+/** The map home and login have their own chrome; signed-out navigation uses the public frame. */
+const PUBLIC_CHROME = new Set(["/contact"]);
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "ST";
@@ -102,11 +102,9 @@ function StudentWorkspace({ children, pathname }: { children: ReactNode; pathnam
       {mobileOpen && <button type="button" className="sidebar-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
       <aside className={`app-sidebar ${mobileOpen ? "is-open" : ""}`} aria-label="Student workspace">
         <Link href="/dashboard" className="app-brand" aria-label="UNILUS Navigator dashboard"><BrandLogo /></Link>
-        <a href="https://www.unilus.ac.zm" target="_blank" rel="noopener noreferrer" className="workspace-switch">
-          <span className="workspace-avatar">U</span>
-          <span><strong>University of Lusaka</strong><small><i /> Student portal</small></span>
-          <ArrowUpRight size={15} />
-        </a>
+        <div className="workspace-switch justify-center rounded-full">
+          <span><small><i /> Student portal</small></span>
+        </div>
         <div className="nav-label">STUDENT WORKSPACE</div>
         <nav aria-label="Main navigation">
           {navigation.map(({ label, href, icon: Icon }) => {
@@ -165,6 +163,15 @@ export function AppFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "/";
   const { status } = useSession();
   if (pathname === "/login") return <>{children}</>;
+  if (pathname === "/") {
+    return (
+      <>
+        <a href="#main-content" className="skip-link">Skip to content</a>
+        {children}
+        <MobileNav className="xl:hidden" />
+      </>
+    );
+  }
   const publicChrome = PUBLIC_CHROME.has(pathname) || (pathname === "/navigation" && status !== "authenticated");
 
   if (publicChrome) return <PublicFrame>{children}</PublicFrame>;

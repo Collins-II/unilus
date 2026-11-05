@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Mail, Phone, User, X } from "lucide-react";
+import { campusName } from "@/lib/campus-geography";
 
 type Profile = {
   id?: string;
@@ -12,6 +13,7 @@ type Profile = {
   department?: string;
   program?: string;
   year?: string;
+  campus?: string | null;
 };
 
 type ProfileModalProps = {
@@ -31,6 +33,7 @@ function profileForm(profile: Profile | null): Profile {
     department: profile?.department || "",
     program: profile?.program || "",
     year: profile?.year || "",
+    campus: profile?.campus ?? null,
   };
 }
 
@@ -84,9 +87,6 @@ export function ProfileModal({ open, profile, onClose, onSaved }: ProfileModalPr
         body: JSON.stringify({
           name: form.name,
           phone: form.phone,
-          department: form.department,
-          program: form.program,
-          year: form.year,
         }),
       });
 
@@ -129,7 +129,7 @@ export function ProfileModal({ open, profile, onClose, onSaved }: ProfileModalPr
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-[#1769c2]">Profile</p>
             <h2 id="profile-modal-title" className="mt-2 text-2xl font-semibold tracking-tight text-slate-900">Edit student profile</h2>
-            <p className="mt-2 text-sm text-slate-500">Keep your contact and study details up to date.</p>
+            <p className="mt-2 text-sm text-slate-500">Update your contact details. Study programme, department and campus are managed by administrators.</p>
           </div>
           <button type="button" onClick={onClose} disabled={isSubmitting} aria-label="Close profile editor" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
             <X className="h-5 w-5" />
@@ -159,17 +159,18 @@ export function ProfileModal({ open, profile, onClose, onSaved }: ProfileModalPr
 
           <label className="block">
             <span className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700"><User aria-hidden="true" className="h-4 w-4 text-slate-400" />Department</span>
-            <input autoComplete="organization-title" value={form.department || ""} onChange={(event) => setForm((current) => ({ ...current, department: event.target.value }))} className="ui-input" disabled={isSubmitting || isLoadingProfile} />
+            <input value={form.department || "Not assigned"} className="ui-input" disabled />
           </label>
 
           <label className="block">
             <span className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700"><User aria-hidden="true" className="h-4 w-4 text-slate-400" />Program</span>
-            <input value={form.program || ""} onChange={(event) => setForm((current) => ({ ...current, program: event.target.value }))} className="ui-input" disabled={isSubmitting || isLoadingProfile} />
+            <input value={form.program || "Not assigned"} className="ui-input" disabled />
           </label>
+          <p className="text-sm text-slate-600 sm:col-span-2">Assigned campus: {campusName(form.campus)}</p>
 
           <label className="block sm:col-span-2">
             <span className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700"><User aria-hidden="true" className="h-4 w-4 text-slate-400" />Year</span>
-            <input inputMode="numeric" value={form.year || ""} onChange={(event) => setForm((current) => ({ ...current, year: event.target.value }))} className="ui-input" placeholder="2026" disabled={isSubmitting || isLoadingProfile} />
+            <input value={form.year || "Not assigned"} className="ui-input" disabled />
           </label>
 
           {isLoadingProfile && <p role="status" className="sm:col-span-2 text-sm text-slate-500">Loading your current profile…</p>}
